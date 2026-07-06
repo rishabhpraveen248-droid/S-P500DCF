@@ -1,0 +1,6 @@
+streamlit
+supabase
+yfinance
+pandas
+numpy
+lxml
