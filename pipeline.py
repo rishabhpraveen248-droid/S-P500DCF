@@ -24,7 +24,6 @@ def get_sp500_tickers():
     df = pd.read_html(html)[0]
     rows = [(("FI" if r["Symbol"] == "FISV" else r["Symbol"]).replace(".", "-"),
              r["Security"], r["GICS Sector"]) for _, r in df.iterrows()]
-    rows = [r for r in rows if r[0] == "FI"]   # TEMPORARY: only backfill Fiserv
     return rows
 def fetch_one(ticker):
     tk = yf.Ticker(ticker)
