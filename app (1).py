@@ -1,3 +1,4 @@
+# DEPRECATED: earlier draft of the dashboard, not used. See app.py.
 """
 app.py — S&P 500 Reverse-DCF Screener (Streamlit + Supabase)
 Secrets required in Streamlit Cloud (Settings > Secrets):
