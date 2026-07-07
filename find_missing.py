@@ -11,7 +11,26 @@ html = requests.get(
 wiki = set(pd.read_html(StringIO(html))[0]["Symbol"])
 
 sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
-have = {r["ticker"] for r in sb.table("companies").select("ticker").limit(1000).execute().data}
+
+def fetch_all_tickers(page_size=1000):
+    """Paginate through the companies table instead of relying on a single
+    hardcoded limit, so this keeps working if the table grows past one page."""
+    tickers, start = set(), 0
+    while True:
+        batch = (
+            sb.table("companies")
+            .select("ticker")
+            .range(start, start + page_size - 1)
+            .execute()
+            .data
+        )
+        tickers.update(r["ticker"] for r in batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+    return tickers
+
+have = fetch_all_tickers()
 
 missing = sorted(wiki - have)
 print("Missing tickers:", missing if missing else "none — all 503 present")
