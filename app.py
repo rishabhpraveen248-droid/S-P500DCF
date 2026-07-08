@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from supabase import create_client
+from engine import dcf, build_assumptions, EXCLUDED_SECTORS, FORECAST_YEARS
 
 # ---------------------------------------------------------------- page config
 st.set_page_config(
@@ -212,61 +213,67 @@ if pick:
     with right:
         st.subheader("Interactive DCF — set your own assumptions")
 
-        fcf0 = row.get("fcf")
-        shares = row.get("shares")
-        cash = row.get("cash") or 0
-        debt = row.get("debt") or 0
-        price = row.get("price")
-
-        if not (pd.notna(fcf0) and fcf0 and fcf0 > 0 and pd.notna(shares) and shares):
+        if row.get("sector") in EXCLUDED_SECTORS:
             st.info(
-                "This company doesn't have positive trailing free cash flow (or is "
-                "missing share data), so a simple FCF-based DCF isn't meaningful here."
+                "This sector is excluded from the DCF engine (financials, real "
+                "estate, and utilities don't fit a cash-flow DCF), so there's "
+                "nothing to model here."
+            )
+        elif not (pd.notna(row.get("revenue")) and row.get("revenue") and row.get("shares")):
+            st.info(
+                "This company is missing revenue or share data, so a DCF "
+                "isn't meaningful here."
             )
         else:
-            a, b, c = st.columns(3)
-            g5 = a.slider("FCF growth, yrs 1–5 (%)", -10.0, 40.0, 8.0, 0.5) / 100
-            g_term = b.slider("Terminal growth (%)", 0.0, 4.0, 2.5, 0.1) / 100
-            wacc = c.slider("Discount rate / WACC (%)", 5.0, 15.0,
-                            float(row["wacc"] * 100) if pd.notna(row.get("wacc")) else 9.0,
-                            0.25) / 100
+            base_a = build_assumptions(row)
+
+            a1, a2, a3, a4 = st.columns(4)
+            g0 = a1.slider("Year-1 revenue growth (%)", -20.0, 50.0,
+                            float(base_a["g0"] * 100), 0.5) / 100
+            m_ss = a2.slider("Steady-state EBIT margin (%)", 0.0, 60.0,
+                              float(base_a["m_ss"] * 100), 0.5) / 100
+            wacc = a3.slider("Discount rate / WACC (%)", 5.0, 15.0,
+                              float(base_a["wacc"] * 100), 0.25) / 100
+            g_term = a4.slider("Terminal growth (%)", 0.0, 4.0,
+                                float(base_a["g_term"] * 100), 0.1) / 100
 
             if wacc <= g_term:
                 st.warning("WACC must be greater than terminal growth for the math to converge.")
             else:
-                years = np.arange(1, 6)
-                fcfs = fcf0 * (1 + g5) ** years
-                pv_fcfs = fcfs / (1 + wacc) ** years
-                tv = fcfs[-1] * (1 + g_term) / (wacc - g_term)
-                pv_tv = tv / (1 + wacc) ** 5
-                ev = pv_fcfs.sum() + pv_tv
-                equity = ev + cash - debt
-                fv_share = equity / shares
-                mos = (fv_share / price - 1) if pd.notna(price) and price else np.nan
+                custom_a = dict(base_a)
+                custom_a["g0"] = g0
+                custom_a["m_ss"] = m_ss
 
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Fair value / share", f"${fv_share:,.2f}")
-                m2.metric("Current price", f"${price:,.2f}" if pd.notna(price) else "—")
-                m3.metric(
-                    "Margin of safety",
-                    f"{mos*100:,.1f}%" if pd.notna(mos) else "—",
-                    delta=None,
-                )
+                forecast, out = dcf(row, a=custom_a, wacc_override=wacc, terminal_override=g_term)
 
-                proj = pd.DataFrame({
-                    "Year": [f"Y{y}" for y in years],
-                    "Projected FCF ($B)": fcfs / 1e9,
-                    "PV of FCF ($B)": pv_fcfs / 1e9,
-                })
-                st.bar_chart(proj.set_index("Year"), height=260)
+                if out is None:
+                    st.info(
+                        "This engine can't produce a fair value with these "
+                        "assumptions (e.g. negative steady-state free cash flow)."
+                    )
+                else:
+                    price = row.get("price")
+                    fv_share = out["fair_value"]
+                    mos = out["mos"]
 
-                st.caption(
-                    f"PV of 5-yr FCFs ${pv_fcfs.sum()/1e9:,.1f}B + PV of terminal value "
-                    f"${pv_tv/1e9:,.1f}B ({pv_tv/ev*100:,.0f}% of EV) = enterprise value "
-                    f"${ev/1e9:,.1f}B → + net cash = equity ${equity/1e9:,.1f}B "
-                    f"÷ {shares/1e6:,.0f}M shares."
-                )
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Fair value / share", f"${fv_share:,.2f}")
+                    m2.metric("Current price", f"${price:,.2f}" if pd.notna(price) else "—")
+                    m3.metric(
+                        "Margin of safety",
+                        f"{mos*100:,.1f}%" if pd.notna(mos) else "—",
+                        delta=None,
+                    )
 
+                    proj = forecast[["Revenue", "EBIT", "FCF"]] / 1e9
+                    st.bar_chart(proj, height=260)
+
+                    st.caption(
+                        f"{FORECAST_YEARS}-year revenue-driven DCF (same engine as the "
+                        "pipeline verdict on the left) → enterprise value "
+                        f"${out['ev']/1e9:,.1f}B, discounted at {wacc*100:,.2f}% WACC "
+                        f"with {g_term*100:,.1f}% terminal growth."
+                    )
 st.divider()
 st.caption(
     "Built by Risba · data via yfinance · valuations are a student modeling "
