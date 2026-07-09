@@ -21,7 +21,7 @@ from engine import dcf, build_assumptions, EXCLUDED_SECTORS, FORECAST_YEARS
 
 # ---------------------------------------------------------------- page config
 st.set_page_config(
-    page_title="S&P 500 DCF Screener",
+    page_title="Valuation Atlas — S&P 500 DCF Screener",
     page_icon="📊",
     layout="wide",
 )
@@ -30,15 +30,39 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-      .stApp { background-color: #0d1526; }
-      h1, h2, h3 { color: #f5efe0 !important; font-weight: 600; }
-      .metric-label { color: #8fa3c4; font-size: 0.8rem; letter-spacing: .06em;
-                      text-transform: uppercase; }
-      .metric-value { color: #f5efe0; font-size: 1.6rem; font-weight: 600; }
-      .verdict-under { color: #4ade80; font-weight: 700; }
-      .verdict-over  { color: #f87171; font-weight: 700; }
-      .verdict-fair  { color: #facc15; font-weight: 700; }
-      div[data-testid="stSidebar"] { background-color: #101b33; }
+    @import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Schibsted+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap");
+
+    :root {
+        --va-bg: #120f0d;
+        --va-text: #f2ead9;
+        --va-muted: #948d84;
+        --va-accent: #d9a962;
+        --va-border: rgba(245, 239, 224, 0.12);
+    }
+
+    .stApp { background-color: var(--va-bg); font-family: "Schibsted Grotesk", sans-serif; }
+    h1, h2, h3 { font-family: "Instrument Serif", serif !important; color: var(--va-text) !important; font-weight: 400; }
+    .metric-label { color: var(--va-muted); font-size: 0.8rem; letter-spacing: .06em; text-transform: uppercase; }
+    .metric-value { color: var(--va-text); font-size: 1.6rem; font-weight: 600; font-family: "Spline Sans Mono", monospace; }
+    .verdict-under { color: #4ade80; font-weight: 700; }
+    .verdict-over { color: #f87171; font-weight: 700; }
+    .verdict-fair { color: var(--va-accent); font-weight: 700; }
+    div[data-testid="stSidebar"] { display: none; }
+
+    [data-testid="stMetricValue"] { font-family: "Spline Sans Mono", monospace; color: var(--va-text); }
+    [data-testid="stMetricLabel"] { color: var(--va-muted); text-transform: uppercase; letter-spacing: .06em; font-size: 0.75rem; }
+
+    .va-wordmark-row { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 2.2rem; }
+    .va-wordmark { font-family: "Instrument Serif", serif; font-size: 1.4rem; color: var(--va-text); }
+    .va-wordmark-sub { font-family: "Spline Sans Mono", monospace; font-size: 0.75rem; letter-spacing: .08em; color: var(--va-muted); text-transform: uppercase; }
+    .va-eyebrow { font-family: "Spline Sans Mono", monospace; font-size: 0.8rem; letter-spacing: .12em; color: var(--va-accent); text-transform: uppercase; margin-bottom: 1rem; }
+    .va-headline { font-family: "Instrument Serif", serif; font-size: 2.6rem; line-height: 1.25; color: var(--va-text); font-weight: 400; margin-bottom: 1.4rem; }
+    .va-headline .va-accent { font-style: italic; color: var(--va-accent); }
+    .va-subtext { font-family: "Schibsted Grotesk", sans-serif; font-size: 1rem; line-height: 1.6; color: var(--va-muted); max-width: 46rem; margin-bottom: 1.8rem; }
+    .va-footer { font-family: "Schibsted Grotesk", sans-serif; font-size: 0.8rem; line-height: 1.6; color: var(--va-muted); }
+
+    .stTextInput input { background-color: transparent; border: none; border-bottom: 1px solid var(--va-border); border-radius: 0; color: var(--va-text); font-size: 1.05rem; }
+    .stTextInput input:focus { border-bottom: 1px solid var(--va-accent); box-shadow: none; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -48,7 +72,6 @@ st.markdown(
 @st.cache_resource
 def get_client():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_ANON_KEY"])
-
 
 @st.cache_data(ttl=3600)
 def load_data() -> pd.DataFrame:
@@ -67,10 +90,11 @@ def load_data() -> pd.DataFrame:
     fundamentals = fetch_all("fundamentals")
     valuations = fetch_all("valuations")
 
-    df = companies.merge(fundamentals, on="ticker", how="left") \
-                  .merge(valuations, on="ticker", how="left")
+    df = (
+        companies.merge(fundamentals, on="ticker", how="left")
+        .merge(valuations, on="ticker", how="left")
+    )
     return df
-
 
 try:
     df = load_data()
@@ -81,40 +105,52 @@ except Exception as e:
     )
     st.stop()
 
-# ------------------------------------------------------------------- header
-st.title("S&P 500 DCF Screener")
-st.caption(
-    "Automated discounted-cash-flow valuations for every company in the index. "
-    "Data refreshed by a local pipeline (yfinance → DCF engine → Supabase). "
-    "Educational project — not investment advice."
+n_modeled = int(df["fair_value"].notna().sum())
+
+# ------------------------------------------------------------------- hero
+st.markdown(
+    f"""
+    <div class="va-wordmark-row">
+        <span class="va-wordmark">Valuation Atlas</span>
+        <span class="va-wordmark-sub">S&P 500 · DCF</span>
+    </div>
+    <div class="va-eyebrow">DCF Model — S&P 500</div>
+    <div class="va-headline">{n_modeled} S&P 500 companies, each run through an
+        <span class="va-accent">independent two-stage DCF.</span></div>
+    <div class="va-subtext">Three-year explicit forecast, Gordon-growth terminal value, WACC
+        computed per company from live beta and capital structure. Search a ticker to see the
+        assumptions behind its fair value, then adjust them yourself and watch it recompute.</div>
+    """,
+    unsafe_allow_html=True,
 )
 
-# ------------------------------------------------------------------ sidebar
-with st.sidebar:
-    st.header("Filters")
+# ------------------------------------------------------------------ filters
+search = st.text_input(
+    "Search",
+    "",
+    placeholder="Search a company or ticker, try NVDA or Coca-Cola",
+    label_visibility="collapsed",
+    key="search_box",
+)
 
+f1, f2 = st.columns([2, 1], gap="large")
+
+with f1:
     sectors = sorted(df["sector"].dropna().unique().tolist())
-    sel_sectors = st.multiselect("Sector", sectors, default=[])
+    sel_sectors = st.pills("Sector", sectors, selection_mode="multi", key="sel_sectors")
 
     verdicts = [v for v in df["verdict"].dropna().unique().tolist() if v != "N/A"]
-    sel_verdicts = st.multiselect("Verdict", sorted(verdicts), default=[])
+    sel_verdicts = st.pills("Verdict", sorted(verdicts), selection_mode="multi", key="sel_verdicts")
 
+with f2:
     mos_min, mos_max = st.slider(
         "Margin of safety range (%)",
         min_value=-100, max_value=500, value=(-100, 500), step=5,
-        help="Fair value vs. price. Positive = model thinks it's cheap.",
+        help="Fair value vs. price. Positive means the model thinks it is cheap.",
+        key="mos_range",
     )
 
-    search = st.text_input("Search ticker or name", "")
-
-    st.divider()
-    st.caption(
-        f"{df['fair_value'].notna().sum()} of {len(df)} companies have a DCF "
-        "(financials, real estate, and utilities are excluded — DCF doesn't "
-        "suit their capital structure)."
-    )
-
-# ------------------------------------------------------------------ filters
+# ------------------------------------------------------------------ apply filters
 view = df.copy()
 view = view[view["fair_value"].notna()]
 
@@ -133,13 +169,14 @@ if search:
         | view["name"].str.lower().str.contains(s, na=False)
     ]
 
-# ------------------------------------------------------------- summary row
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Companies shown", f"{len(view):,}")
-c2.metric("Undervalued", f"{(view['verdict'] == 'UNDERVALUED').sum():,}")
-c3.metric("Overvalued", f"{(view['verdict'] == 'OVERVALUED').sum():,}")
-med = view["mos_pct"].median()
-c4.metric("Median margin of safety", f"{med:,.1f}%" if pd.notna(med) else "—")
+cap_col, reset_col = st.columns([5, 1])
+with cap_col:
+    st.caption(f"{len(view):,} companies, sorted by margin of safety")
+with reset_col:
+    if st.button("Reset filters", use_container_width=True):
+        for k in ("sel_sectors", "sel_verdicts", "mos_range", "search_box"):
+            st.session_state.pop(k, None)
+        st.rerun()
 
 # ------------------------------------------------------------------- table
 table = view[[
@@ -150,11 +187,14 @@ table["implied_growth"] = table["implied_growth"] * 100
 table["wacc"] = table["wacc"] * 100
 table = table.sort_values("mos_pct", ascending=False)
 
+row_h, header_h, pad = 35, 38, 3
+table_height = min(header_h + row_h * max(len(table), 1) + pad, 560)
+
 st.dataframe(
     table,
     use_container_width=True,
     hide_index=True,
-    height=480,
+    height=table_height,
     column_config={
         "ticker": st.column_config.TextColumn("Ticker", width="small"),
         "name": st.column_config.TextColumn("Company"),
@@ -185,44 +225,60 @@ if pick:
     left, right = st.columns([1, 2], gap="large")
 
     with left:
-        st.subheader(f"{row['name']} ({pick})")
-        st.caption(f"{row.get('sector', '')} · {row.get('industry', '') or ''}")
+        name = row["name"]
+        sector_disp = row.get("sector", "")
+        industry_disp = row.get("industry", "") or ""
+        price = row["price"]
+        market_cap = row.get("market_cap")
+        revenue = row.get("revenue")
+        fcf = row.get("fcf")
+        cash = row.get("cash") or 0
+        debt = row.get("debt") or 0
+        net_cash = cash - debt
+        rev_growth_3y = row.get("rev_growth_3y")
+        beta = row.get("beta")
+        verdict_val = row.get("verdict")
+        fair_value = row["fair_value"]
 
         def fmt_b(x):
             return f"${x/1e9:,.1f}B" if pd.notna(x) else "—"
 
-        st.write(f"**Price:** ${row['price']:,.2f}" if pd.notna(row["price"]) else "**Price:** —")
-        st.write(f"**Market cap:** {fmt_b(row.get('market_cap'))}")
-        st.write(f"**Revenue (TTM):** {fmt_b(row.get('revenue'))}")
-        st.write(f"**Free cash flow:** {fmt_b(row.get('fcf'))}")
-        st.write(f"**Net cash (cash − debt):** {fmt_b((row.get('cash') or 0) - (row.get('debt') or 0))}")
-        if pd.notna(row.get("rev_growth_3y")):
-            st.write(f"**3-yr revenue CAGR:** {row['rev_growth_3y']*100:,.1f}%")
-        if pd.notna(row.get("beta")):
-            st.write(f"**Beta:** {row['beta']:.2f}")
+        st.subheader(f"{name} ({pick})")
+        st.caption(f"{sector_disp} · {industry_disp}")
 
-        v = row.get("verdict")
-        if v and v != "N/A":
-            cls = {"UNDERVALUED": "verdict-under", "OVERVALUED": "verdict-over"}.get(v, "verdict-fair")
-            st.markdown(
-                f"Pipeline verdict: <span class='{cls}'>{v}</span> "
-                f"(fair value ${row['fair_value']:,.2f})",
-                unsafe_allow_html=True,
-            )
+        st.write(f"**Price:** ${price:,.2f}" if pd.notna(price) else "**Price:** —")
+        st.write(f"**Market cap:** {fmt_b(market_cap)}")
+        st.write(f"**Revenue (TTM):** {fmt_b(revenue)}")
+        st.write(f"**Free cash flow:** {fmt_b(fcf)}")
+        st.write(f"**Net cash (cash minus debt):** {fmt_b(net_cash)}")
+        if pd.notna(rev_growth_3y):
+            st.write(f"**3-yr revenue CAGR:** {rev_growth_3y*100:,.1f}%")
+        if pd.notna(beta):
+            st.write(f"**Beta:** {beta:.2f}")
+
+        if verdict_val and verdict_val != "N/A":
+            cls_map = {"UNDERVALUED": "verdict-under", "OVERVALUED": "verdict-over"}
+            cls = cls_map.get(verdict_val, "verdict-fair")
+            verdict_html = f"Pipeline verdict: <span class=\"{cls}\">{verdict_val}</span> (fair value ${fair_value:,.2f})"
+            st.markdown(verdict_html, unsafe_allow_html=True)
 
     with right:
-        st.subheader("Interactive DCF — set your own assumptions")
+        st.subheader("Interactive DCF, set your own assumptions")
 
-        if row.get("sector") in EXCLUDED_SECTORS:
+        sector_val = row.get("sector")
+        revenue_val = row.get("revenue")
+        shares_val = row.get("shares")
+
+        if sector_val in EXCLUDED_SECTORS:
             st.info(
                 "This sector is excluded from the DCF engine (financials, real "
-                "estate, and utilities don't fit a cash-flow DCF), so there's "
+                "estate, and utilities do not fit a cash-flow DCF), so there is "
                 "nothing to model here."
             )
-        elif not (pd.notna(row.get("revenue")) and row.get("revenue") and row.get("shares")):
+        elif not (pd.notna(revenue_val) and revenue_val and shares_val):
             st.info(
                 "This company is missing revenue or share data, so a DCF "
-                "isn't meaningful here."
+                "is not meaningful here."
             )
         else:
             base_a = build_assumptions(row)
@@ -248,17 +304,17 @@ if pick:
 
                 if out is None:
                     st.info(
-                        "This engine can't produce a fair value with these "
-                        "assumptions (e.g. negative steady-state free cash flow)."
+                        "This engine cannot produce a fair value with these "
+                        "assumptions (for example, negative steady-state free cash flow)."
                     )
                 else:
-                    price = row.get("price")
+                    price2 = row.get("price")
                     fv_share = out["fair_value"]
                     mos = out["mos"]
 
                     m1, m2, m3 = st.columns(3)
                     m1.metric("Fair value / share", f"${fv_share:,.2f}")
-                    m2.metric("Current price", f"${price:,.2f}" if pd.notna(price) else "—")
+                    m2.metric("Current price", f"${price2:,.2f}" if pd.notna(price2) else "—")
                     m3.metric(
                         "Margin of safety",
                         f"{mos*100:,.1f}%" if pd.notna(mos) else "—",
@@ -268,14 +324,21 @@ if pick:
                     proj = forecast[["Revenue", "EBIT", "FCF"]] / 1e9
                     st.bar_chart(proj, height=260)
 
+                    ev_b = out["ev"] / 1e9
                     st.caption(
                         f"{FORECAST_YEARS}-year revenue-driven DCF (same engine as the "
-                        "pipeline verdict on the left) → enterprise value "
-                        f"${out['ev']/1e9:,.1f}B, discounted at {wacc*100:,.2f}% WACC "
+                        "pipeline verdict on the left), enterprise value "
+                        f"${ev_b:,.1f}B, discounted at {wacc*100:,.2f}% WACC "
                         f"with {g_term*100:,.1f}% terminal growth."
                     )
+
 st.divider()
-st.caption(
-    "Built by Risba · data via yfinance · valuations are a student modeling "
-    "project, not investment advice."
+st.markdown(
+    """
+    <div class="va-footer">
+    Fair value = PV of projected free cash flow plus net cash, divided by shares outstanding.<br>
+    Margin of safety = (fair value minus price) divided by price. Sample data, not investment advice.
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
